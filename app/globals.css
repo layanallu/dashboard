@@ -1,26 +1,93 @@
 @import "tailwindcss";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
+/* ===== Theme Tokens (Tailwind v4) ===== */
+@theme {
+  /* Base */
+  --color-bg:           #0B1B13;  /* دارك فورست */
+  --color-surface:      rgba(255,255,255,.06); /* زجاج خفيف */
+  --color-surface-2:    rgba(255,255,255,.10);
+  --color-border:       rgba(255,255,255,.14);
+  --color-border-soft:  rgba(255,255,255,.08);
+  --color-text:         #F5F7F9;
+  --color-subtle:       #C9D3CE;
+
+  --color-accent:       #00C37A;  /* أخضر */
+  --color-accent-2:     #52E29F;
+
+  /* Radii & shadow */
+  --radius-lg:          16px;
+  --radius-xl:          22px;
+  --shadow-soft:        0 10px 30px rgba(0,0,0,.22);
 }
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
-}
-
+/* ===== Base ===== */
+:root { color-scheme: dark; }
+html, body { height: 100%; }
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background:
+    radial-gradient(1200px 700px at 20% -10%, #0f3024 0%, transparent 60%),
+    radial-gradient(1200px 700px at 110% 20%, #0c3a2c 0%, transparent 55%),
+    var(--color-bg);
+  color: var(--color-text);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
+
+/* ===== Cards (Glass) ===== */
+.card {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border-soft);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-soft);
+  backdrop-filter: blur(10px);
+}
+.card:hover { border-color: var(--color-border); }
+
+/* ===== KPI card (بدون @apply card) ===== */
+.kpi {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border-soft);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-soft);
+  backdrop-filter: blur(10px);
+  padding: 1.25rem;      /* p-5 */
+  display:flex; align-items:center; justify-content:space-between; gap:.75rem;
+}
+@media (min-width: 768px){
+  .kpi { padding: 1.5rem; } /* md:p-6 */
+}
+.kpi-title { font-size: .85rem; color: var(--color-subtle); }
+.kpi-value { font-size: 1.75rem; font-weight: 800; letter-spacing: -.02em; }
+.kpi-hint  { font-size: .75rem; opacity:.8; margin-top: .25rem; }
+
+/* Badges */
+.badge {
+  display:inline-flex; align-items:center; gap:.35rem;
+  font-size:.75rem; font-weight:600;
+  padding:.35rem .6rem; border-radius:9999px;
+  background: var(--color-surface-2);
+  border: 1px solid var(--color-border-soft);
+  color: var(--color-subtle);
+}
+.badge--up    { color: var(--color-accent);  border-color: rgba(0,195,122,.35); }
+.badge--muted { color: var(--color-subtle); }
+
+/* Section title */
+.section-title { font-size: 1.05rem; font-weight: 600; }
+
+/* Page container */
+.container-page {
+  max-width: 1200px; margin-inline:auto; padding: 1.5rem;
+}
+
+/* Header cover شريط علوي خفيف */
+.header-cover {
+  height: 140px; border-radius: 18px; overflow:hidden;
+  background:
+    radial-gradient(800px 250px at 75% -80%, rgba(82,226,159,.25), transparent 70%),
+    radial-gradient(800px 250px at 15% -60%, rgba(111,194,255,.18), transparent 65%);
+  border: 1px solid var(--color-border-soft);
+}
+.header-inner { padding: 1rem 1.25rem; display:flex; align-items:center; justify-content:space-between; }
+.header-title { font-size: 1.25rem; font-weight:700; }
+.header-sub   { font-size: .85rem; color: var(--color-subtle); }
