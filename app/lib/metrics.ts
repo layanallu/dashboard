@@ -10,99 +10,168 @@ type KPIs = {
   latestQuarterLabel?: string;
 };
 
-export function computeKPIs(csv: CsvRow[], xls: ExcelRow[]): KPIs {
-  // آخر سنة متوفرة في CSV (مالية)
-  const years = [...new Set(csv.map(r => Number(r["السنة"])) )].filter(Boolean).sort((a,b)=>a-b);
-  const latestYear = years.at(-1);
-  const prevYear = years.at(-2);
+export function computeKPIs(csv: CsvRow[], xls: ExcelRow[]): KPIs & { yoyLabel?: string } {
+  const toNum = (v: unknown) =>
+    typeof v === "number" ? v : typeof v === "string" ? Number(v.replace(/[^\d.-]/g, "")) || 0 : 0;
 
-  // إجمالي المنشآت من Excel (إذا ربع سنوي موجود نأخذ آخر صف، غيره نجمع آخر سنة)
-  let latestExcelRows = xls.filter(r => !!r["السنة"]);
-  const quarters = latestExcelRows
-    .map(r => r["الربع"])
-    .filter(Boolean) as (string|number)[];
-  const hasQuarter = quarters.length > 0;
+  const toQ = (q: any) =>
+    typeof q === "string" && /^q\d+/i.test(q) ? Number(q.replace(/q/i, "")) : Number(q || 0);
 
-  let latestYearExcel = Math.max(...latestExcelRows.map(r=>Number(r["السنة"])));
+  const sum = (arr: number[]) => arr.reduce((a, b) => a + (Number(b) || 0), 0);
+
+  // --- تجهيز بيانات الإكسل ---
+  const rows = xls.filter((r) => Number(r["السنة"]));
+  const years = [...new Set(rows.map((r) => Number(r["السنة"])))].sort((a, b) => a - b);
+  const latestYearExcel = years.at(-1)!;
+  const hasQuarter = rows.some((r) => r["الربع"] != null && r["الربع"] !== "");
+  const rowsYear = (y: number) => rows.filter((r) => Number(r["السنة"]) === y);
+  const sumYear = (y: number) => sum(rowsYear(y).map((r) => toNum(r["عدد المنشآت"])));
+
+  // أحدث فترة للبطاقات (totalSMEs + label)
   let latestQuarterLabel: string | undefined;
+  let totalSMEs = 0;
 
   if (hasQuarter) {
-    // نختار أحدث سنة ثم أحدث ربع (ترتيب رباعي)
-    const latestYearRows = latestExcelRows.filter(r => r["السنة"] === latestYearExcel);
-    // نفترض قيم الربع مثل Q1/Q2/Q3/Q4 أو 1/2/3/4
-    const toQ = (q:any) => typeof q === "string" && q.toUpperCase().startsWith("Q")
-      ? Number(q.replace(/q/i,""))
-      : Number(q);
-    const maxQ = Math.max(...latestYearRows.map(r => toQ(r["الربع"])));
-    latestExcelRows = latestYearRows.filter(r => toQ(r["الربع"]) === maxQ);
-    latestQuarterLabel = `Q${maxQ} ${latestYearExcel}`;
+    const ry = rowsYear(latestYearExcel);
+    const latestQ = Math.max(...ry.map((r) => toQ(r["الربع"])).filter(Boolean));
+    const latestRows = ry.filter((r) => toQ(r["الربع"]) === latestQ);
+    totalSMEs = sum(latestRows.map((r) => toNum(r["عدد المنشآت"])));
+    latestQuarterLabel = `Q${latestQ} ${latestYearExcel}`;
   } else {
-    // استخدم آخر سنة كاملة
-    latestExcelRows = latestExcelRows.filter(r => r["السنة"] === latestYearExcel);
+    totalSMEs = sumYear(latestYearExcel);
   }
 
-  const sum = (arr:number[]) => arr.reduce((a,b)=>a+(Number(b)||0),0);
-
-  const totalSMEs = sum(latestExcelRows.map(r => Number(r["عدد المنشآت"]) || 0));
-
-  // YoY من إجمالي المنشآت (Excel) بين آخر سنة وسابقها (لو ما فيه ربع)
+  // === YoY الذكي ===
   let yoy: number | null = null;
-  if (!hasQuarter) {
-    const prevYearTotal = sum(xls.filter(r => r["السنة"] === (latestYearExcel-1)).map(r => Number(r["عدد المنشآت"])||0));
-    if (prevYearTotal>0) yoy = ((totalSMEs - prevYearTotal) / prevYearTotal) * 100;
+  let yoyLabel: string | undefined;
+
+  if (hasQuarter) {
+    const ry = rowsYear(latestYearExcel);
+    const latestQ = Math.max(...ry.map((r) => toQ(r["الربع"])).filter(Boolean));
+
+    const sumYearUpToQ = (y: number, q: number) =>
+      sum(rows.filter((r) => Number(r["السنة"]) === y && toQ(r["الربع"]) >= 1 && toQ(r["الربع"]) <= q)
+               .map((r) => toNum(r["عدد المنشآت"])));
+
+    const sumTTM = (y: number, q: number) => {
+      // آخر 4 أرباع تنتهي عند (y,q)
+      const vals: number[] = [];
+      let cy = y, cq = q;
+      for (let i = 0; i < 4; i++) {
+        const v = sum(rows.filter((r) => Number(r["السنة"]) === cy && toQ(r["الربع"]) === cq)
+                          .map((r) => toNum(r["عدد المنشآت"])));
+        vals.push(v);
+        cq -= 1;
+        if (cq < 1) { cq = 4; cy -= 1; }
+      }
+      return sum(vals);
+    };
+
+    if (latestQ < 4) {
+      // نفس الفترة (مثال: H1 2025 vs H1 2024)
+      const cur = sumYearUpToQ(latestYearExcel, latestQ);
+      const prev = sumYearUpToQ(latestYearExcel - 1, latestQ);
+      yoy = prev > 0 ? ((cur - prev) / prev) * 100 : null;
+      yoyLabel = "YoY (نفس الفترة)";
+    } else {
+      // TTM
+      const curTTM = sumTTM(latestYearExcel, latestQ);
+      // الأرباع الأربعة السابقة مباشرة
+      let py = latestYearExcel, pq = latestQ - 4;
+      while (pq <= 0) { pq += 4; py -= 1; } // نهاية نافذة TTM السابقة
+      const prevTTM = sumTTM(py, pq);
+      yoy = prevTTM > 0 ? ((curTTM - prevTTM) / prevTTM) * 100 : null;
+      yoyLabel = "YoY (TTM)";
+    }
+  } else {
+    // سنوي كامل
+    const cur = sumYear(latestYearExcel);
+    const prev = sumYear(latestYearExcel - 1);
+    yoy = prev > 0 ? ((cur - prev) / prev) * 100 : null;
+    yoyLabel = "YoY (سنوي)";
   }
 
-  // QoQ إن كان عندنا ربعيات
+  // === QoQ ===
   let qoq: number | null = null;
   if (hasQuarter) {
-    const toQ = (q:any)=> typeof q === "string" && q.toUpperCase().startsWith("Q") ? Number(q.replace(/q/i,"")) : Number(q);
-    const latestQ = Math.max(...xls.filter(r=>r["السنة"]===latestYearExcel).map(r=>toQ(r["الربع"])).filter(Boolean));
-    const prevQ = latestQ - 1;
-    const cur = sum(xls.filter(r=>r["السنة"]===latestYearExcel && toQ(r["الربع"])===latestQ).map(r=>Number(r["عدد المنشآت"])||0));
-    const prev = sum(xls.filter(r=>r["السنة"]===latestYearExcel && toQ(r["الربع"])===prevQ).map(r=>Number(r["عدد المنشآت"])||0));
-    if (prev>0) qoq = ((cur - prev) / prev) * 100;
+    const ry = rowsYear(latestYearExcel);
+    const latestQ = Math.max(...ry.map((r) => toQ(r["الربع"])).filter(Boolean));
+
+    const sumQuarter = (y: number, q: number) =>
+      sum(rows.filter((r) => Number(r["السنة"]) === y && toQ(r["الربع"]) === q)
+              .map((r) => toNum(r["عدد المنشآت"])));
+
+    let prevQ = latestQ - 1;
+    let prevY = latestYearExcel;
+    if (prevQ < 1) { prevQ = 4; prevY -= 1; }
+
+    const curQ = sumQuarter(latestYearExcel, latestQ);
+    const lastQ = sumQuarter(prevY, prevQ);
+    qoq = lastQ > 0 ? ((curQ - lastQ) / lastQ) * 100 : null;
   }
 
-  // القطاع الأسرع نموًا (YoY) من CSV (مالية): نقارن آخر سنة وسابقتها بالإيرادات/الفائض أو إجمالي المنشآت إن توفّر
+  // === القطاع الأسرع نموًا (CSV) — كما عندك ===
   let fastestSector: KPIs["fastestSector"] = null;
-  if (latestYear && prevYear) {
-    const bySector = (year:number) => {
-      // نستخدم الفائض_موزع إن وجد، وإلا الإيرادات_موزع، وإلا إجمالي_عدد_المنشآت
-      const map = new Map<string, number>();
-      for (const r of csv.filter(r=>Number(r["السنة"])===year)) {
-        const val = Number(r["الفائض_موزع"]) || Number(r["الإيرادات_موزع"]) || Number(r["إجمالي_عدد_المنشآت"]) || 0;
-        map.set(r["القطاع_العام"], (map.get(r["القطاع_العام"])||0) + val);
+  {
+    const yearsCsv = [...new Set(csv.map((r) => Number(r["السنة"])))].filter(Boolean).sort((a, b) => a - b);
+    const latestYearCsv = yearsCsv.at(-1);
+    const prevYearCsv = yearsCsv.at(-2);
+    if (latestYearCsv && prevYearCsv) {
+      const bySector = (y: number) => {
+        const m = new Map<string, number>();
+        for (const r of csv.filter((x) => Number(x["السنة"]) === y)) {
+          const v =
+            toNum(r["الفائض_موزع"]) || toNum(r["الإيرادات_موزع"]) || toNum(r["إجمالي_عدد_المنشآت"]) || 0;
+          const key = String(r["القطاع_العام"] || "غير معروف");
+          m.set(key, (m.get(key) || 0) + v);
+        }
+        return m;
+      };
+      const curS = bySector(latestYearCsv);
+      const prevS = bySector(prevYearCsv);
+      let best = { name: "", yoy: -Infinity };
+      for (const [sec, curVal] of curS.entries()) {
+        const pv = prevS.get(sec) || 0;
+        if (pv > 0) {
+          const y = ((curVal - pv) / pv) * 100;
+          if (y > best.yoy) best = { name: sec, yoy: y };
+        }
       }
-      return map;
-    };
-    const curS = bySector(latestYear);
-    const prevS = bySector(prevYear);
-    let best = { name: "", yoy: -Infinity };
-    for (const [sec, curVal] of curS.entries()) {
-      const pv = prevS.get(sec) || 0;
-      if (pv>0) {
-        const y = ((curVal - pv)/pv)*100;
-        if (y > best.yoy) best = { name: sec, yoy: y };
-      }
+      if (best.name) fastestSector = best;
     }
-    if (best.name) fastestSector = best;
   }
 
-  // المنطقة الأعلى تركّزًا من Excel (أكبر حصة من إجمالي المنشآت في أحدث فترة)
+  // === المنطقة الأعلى تركّزًا (أحدث فترة) — كما عندك ===
   let topRegion: KPIs["topRegion"] = null;
-  if (latestExcelRows.length) {
+  {
+    const ry = rowsYear(latestYearExcel);
+    const latestQ = hasQuarter ? Math.max(...ry.map((r) => toQ(r["الربع"])).filter(Boolean)) : null;
+    const latestRowsForCard = hasQuarter
+      ? ry.filter((r) => toQ(r["الربع"]) === latestQ)
+      : rowsYear(latestYearExcel);
+
     const byRegion = new Map<string, number>();
-    for (const r of latestExcelRows) {
-      const v = Number(r["عدد المنشآت"])||0;
-      byRegion.set(r["المنطقة"], (byRegion.get(r["المنطقة"])||0) + v);
+    for (const r of latestRowsForCard) {
+      const key = String(r["المنطقة"] || "غير معروف");
+      byRegion.set(key, (byRegion.get(key) || 0) + toNum(r["عدد المنشآت"]));
     }
-    let best: any = { name: "", val: 0 };
-    for (const [k,v] of byRegion.entries()) if (v > best.val) best = { name: k, val: v };
-    if (best.val>0) topRegion = { name: best.name, sharePct: (best.val/totalSMEs)*100, count: best.val };
+    let best = { name: "", val: 0 };
+    for (const [k, v] of byRegion.entries()) if (v > best.val) best = { name: k, val: v };
+    if (best.val > 0) topRegion = { name: best.name, sharePct: (best.val / totalSMEs) * 100, count: best.val };
   }
 
-  return { totalSMEs, yoy, qoq, fastestSector, topRegion, latestYear: latestYear ?? latestYearExcel, latestQuarterLabel };
+  return {
+    totalSMEs,
+    yoy,
+    qoq,
+    fastestSector,
+    topRegion,
+    latestYear: latestYearExcel,
+    latestQuarterLabel,
+    yoyLabel,
+  };
 }
+
 
 // ===== Data for charts =====
 
@@ -161,13 +230,29 @@ export function donutLatestSize(xls: ExcelRow[]) {
 }
 
 // Choropleth: عدد المنشآت حسب المنطقة (أحدث فترة)
-export function regionCountsLatest(xls: ExcelRow[]) {
-  const latest = Math.max(...xls.map(r=>Number(r["السنة"])).filter(Boolean));
-  const latestRows = xls.filter(r=>r["السنة"]===latest);
-  const map = new Map<string, number>();
-  for (const r of latestRows) {
-    const v = Number(r["عدد المنشآت"])||0;
-    map.set(r["المنطقة"], (map.get(r["المنطقة"])||0)+v);
+import { normalizeRegionName } from "./regions";
+
+export function regionCountsLatest(xls: any[]) {
+  // اختَر أحدث فترة: إن كان عندك أرباع خذ آخر سنة/ربع، وإلا آخر سنة
+  const years = xls.map(r => Number(r["السنة"])).filter(Boolean);
+  const latestYear = Math.max(...years);
+  const hasQuarter = xls.some(r => r["الربع"]);
+  const toQ = (q:any) => typeof q === "string" && q.toUpperCase().startsWith("Q")
+    ? Number(q.replace(/q/i,""))
+    : Number(q);
+
+  let rows = xls.filter(r => Number(r["السنة"]) === latestYear);
+  if (hasQuarter) {
+    const latestQ = Math.max(...rows.map(r => toQ(r["الربع"])).filter(Boolean));
+    rows = rows.filter(r => toQ(r["الربع"]) === latestQ);
   }
-  return map; // region -> count
+
+  const byRegion = new Map<string, number>();
+  for (const r of rows) {
+    const key = normalizeRegionName(String(r["المنطقة"] || r["Region"] || ""));
+    const v = Number(String(r["عدد المنشآت"] ?? "0").replace(/[^\d.-]/g, "")) || 0;
+    byRegion.set(key, (byRegion.get(key) || 0) + v);
+  }
+  return byRegion; // مفاتيحه أسماء موحّدة
 }
+

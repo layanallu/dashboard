@@ -3,16 +3,16 @@
 /* ===== Theme Tokens (Tailwind v4) ===== */
 @theme {
   /* Base */
-  --color-bg:           #0B1B13;  /* دارك فورست */
-  --color-surface:      rgba(255,255,255,.06); /* زجاج خفيف */
+  --color-bg:           #0B1B13;                         /* دارك فورست */
+  --color-surface:      rgba(255,255,255,.06);           /* زجاج خفيف */
   --color-surface-2:    rgba(255,255,255,.10);
   --color-border:       rgba(255,255,255,.14);
   --color-border-soft:  rgba(255,255,255,.08);
   --color-text:         #F5F7F9;
   --color-subtle:       #C9D3CE;
 
-  --color-accent:       #00C37A;  /* أخضر */
-  --color-accent-2:     #52E29F;
+  --color-accent:       #00C37A;                         /* أخضر أساسي */
+  --color-accent-2:     #52E29F;                         /* أخضر فاتح */
 
   /* Radii & shadow */
   --radius-lg:          16px;
@@ -20,7 +20,40 @@
   --shadow-soft:        0 10px 30px rgba(0,0,0,.22);
 }
 
-/* ===== Base ===== */
+/* ===== Aliases (لاستخدامها من JS والرسومات) ===== */
+:root{
+  --accent: var(--color-accent);
+  --accent-2: var(--color-accent-2);
+  --text: var(--color-text);
+  --subtle: var(--color-subtle);
+  --card-surface: var(--color-surface);
+  --card-surface-2: var(--color-surface-2);
+  --grid-line: rgba(255,255,255,.07);
+
+  /* ===== Chart palette (Line/Bar/Doughnut) ===== */
+  /* Line chart (Finance) */
+  --chart-revenue:  #00C37A;  /* الإيرادات */
+  --chart-expenses: #52E29F;  /* النفقات */
+  --chart-surplus:  #2FD6C7;  /* الفائض (تركواز) */
+
+  /* Bar/Donut (sizes) — كلّها من نفس العائلة */
+  --series-micro:   #00E693;  /* متناهية */
+  --series-small:   #33C9BA;  /* صغيرة */
+  --series-medium:  #16B394;  /* متوسطة (تركواز أغمق) */
+
+  /* Legend/labels */
+  --legend-label:   rgba(255,255,255,.85);
+  --axis-label:     rgba(255,255,255,.70);
+
+  /* Choropleth ramp (خريطة) */
+  --ramp-0: #0b1b13;
+  --ramp-1: #0f3b2d;
+  --ramp-2: #0b5a3d;
+  --ramp-3: #118a57;
+  --ramp-4: #31c47d;
+  --ramp-5: #7bedaf;
+}
+
 :root { color-scheme: dark; }
 html, body { height: 100%; }
 body {
@@ -43,7 +76,7 @@ body {
 }
 .card:hover { border-color: var(--color-border); }
 
-/* ===== KPI card (بدون @apply card) ===== */
+/* ===== KPI card ===== */
 .kpi {
   background: var(--color-surface);
   border: 1px solid var(--color-border-soft);
@@ -65,11 +98,11 @@ body {
   display:inline-flex; align-items:center; gap:.35rem;
   font-size:.75rem; font-weight:600;
   padding:.35rem .6rem; border-radius:9999px;
-  background: var(--color-surface-2);
+  background: var(--card-surface-2);
   border: 1px solid var(--color-border-soft);
   color: var(--color-subtle);
 }
-.badge--up    { color: var(--color-accent);  border-color: rgba(0,195,122,.35); }
+.badge--up    { color: var(--color-accent);  border-color: color-mix(in oklab, var(--color-accent) 35%, transparent); }
 .badge--muted { color: var(--color-subtle); }
 
 /* Section title */
@@ -80,14 +113,25 @@ body {
   max-width: 1200px; margin-inline:auto; padding: 1.5rem;
 }
 
-/* Header cover شريط علوي خفيف */
+/* Header cover */
 .header-cover {
   height: 140px; border-radius: 18px; overflow:hidden;
   background:
-    radial-gradient(800px 250px at 75% -80%, rgba(82,226,159,.25), transparent 70%),
-    radial-gradient(800px 250px at 15% -60%, rgba(111,194,255,.18), transparent 65%);
+    radial-gradient(800px 250px at 75% -80%, color-mix(in oklab, var(--color-accent-2) 25%, transparent) 0%, transparent 70%),
+    radial-gradient(800px 250px at 15% -60%, rgba(111,194,255,.18) 0%, transparent 65%);
   border: 1px solid var(--color-border-soft);
 }
 .header-inner { padding: 1rem 1.25rem; display:flex; align-items:center; justify-content:space-between; }
 .header-title { font-size: 1.25rem; font-weight:700; }
 .header-sub   { font-size: .85rem; color: var(--color-subtle); }
+
+/* ===== Chart.js helpers ===== */
+.chartjs-dark {
+  --chart-grid: var(--grid-line);
+  --chart-label: var(--axis-label);
+}
+
+/* ===== Mapbox helper ===== */
+.map-outline { stroke: var(--accent); }
+/* توازن النصوص للسطر العربي الطويل */
+.text-balance { text-wrap: balance; }

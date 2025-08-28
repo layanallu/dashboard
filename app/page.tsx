@@ -1,156 +1,241 @@
+"use client";
+
+import { useEffect, useMemo, useState } from "react";
+
+/* loaders + metrics */
+import { loadCsvFinance, loadExcelCounts } from "./lib/loaders";
+import {
+  computeKPIs,
+  seriesFinance,
+  seriesSizesByYear,
+  donutLatestSize,
+  regionCountsLatest,
+} from "./lib/metrics";
+
+/* helpers */
+import { formatNumberArabic, pct } from "./lib/format";
+import { normalizeRegionName } from "./lib/regions";
+
+/* UI components */
+import KpiStat from "../components/KpiStat";
+import ProjectsList from "../components/ProjectsList";
+import FinanceLine from "../components/charts/FinanceLine";
+import SizesStackedBar from "../components/charts/SizesStackedBar";
+import SizeDonut from "../components/charts/SizeDonut";
+import RegionChoropleth from "../components/charts/RegionChoropleth";
+
+/* icons */
+import {
+  Building2,
+  TrendingUp,
+  TrendingDown,
+  BarChart3,
+  Trophy,
+  MapPin,
+} from "lucide-react";
+
 export default function Page() {
+  const [csv, setCsv] = useState<any[]>([]);
+  const [xls, setXls] = useState<any[]>([]);
+  const [geo, setGeo] = useState<any>(null);
+
+  useEffect(() => {
+    loadCsvFinance().then(setCsv);
+    loadExcelCounts().then(setXls);
+    fetch("/data/sa_regions.geojson").then((r) => r.json()).then(setGeo);
+  }, []);
+
+  const kpis = useMemo(
+    () => (csv.length && xls.length ? computeKPIs(csv, xls) : null),
+    [csv, xls]
+  );
+  const fin = useMemo(() => (csv.length ? seriesFinance(csv) : null), [csv]);
+  const sizes = useMemo(
+    () => (xls.length ? seriesSizesByYear(xls) : null),
+    [xls]
+  );
+  const donut = useMemo(
+    () => (xls.length ? donutLatestSize(xls) : null),
+    [xls]
+  );
+
+  // دمج counts من الإكسل إلى الـ GeoJSON للخريطة
+  const choroplethGeo = useMemo(() => {
+    if (!geo || !xls.length) return null;
+
+    const counts = regionCountsLatest(xls); // Map(normalizedRegion -> count)
+    const clone = JSON.parse(JSON.stringify(geo));
+    clone.features.forEach((f: any) => {
+      const rawName =
+        f.properties?.name ||
+        f.properties?.Name ||
+        f.properties?.arabic ||
+        f.properties?.region ||
+        "";
+      const key = normalizeRegionName(String(rawName));
+      f.properties.count = counts.get(key) || 0;
+    });
+    return clone;
+  }, [geo, xls]);
+
   return (
     <div className="space-y-5">
-      {/* KPIs — الخمسة الصحيحة */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-5 gap-4">
-        <div className="kpi">
-          <div>
-            <div className="kpi-title">إجمالي المنشآت</div>
-            <div className="kpi-value mt-1">1.18M</div>
-            <div className="kpi-hint">آخر تحديث: 2025</div>
+      {/* ===== KPIs (3 فوق + 2 تحت "ثابتة" لكل الشاشات الكبيرة) ===== */}
+<section className="space-y-4">
+  {/* الصف الأول: 3 كروت */}
+  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+    <KpiStat
+      title="إجمالي المنشآت"
+      value={formatNumberArabic(kpis?.totalSMEs ?? 0)}
+      subtitle={
+        kpis?.latestQuarterLabel ??
+        (kpis?.latestYear ? `آخر سنة: ${kpis.latestYear}` : "—")
+      }
+      icon={<Building2 size={20} />}
+      tone="amber"
+      delta={
+        kpis?.yoy != null
+          ? { kind: kpis.yoy >= 0 ? "up" : "down", value: `YoY ${kpis.yoy.toFixed(1)}%` }
+          : undefined
+      }
+    />
+
+    <KpiStat
+      title="معدل النمو السنوي (YoY)"
+      value={kpis?.yoy != null ? `${kpis.yoy.toFixed(1)}%` : "—"}
+      subtitle={kpis?.latestYear ? `مقارنة بـ ${kpis.latestYear - 1}` : "—"}
+      icon={(kpis?.yoy ?? 0) >= 0 ? <TrendingUp size={20} /> : <TrendingDown size={20} />}
+      tone="teal"
+      delta={
+        kpis?.yoy != null
+          ? { kind: kpis.yoy >= 0 ? "up" : "down", value: pct(kpis.yoy, 1) }
+          : undefined
+      }
+    />
+
+    <KpiStat
+      title="التغير الفصلي (QoQ)"
+      value={kpis?.qoq != null ? `${kpis.qoq.toFixed(1)}%` : "—"}
+      subtitle="مقارنة بالربع السابق"
+      icon={<BarChart3 size={20} />}
+      tone="blue"
+      delta={
+        kpis?.qoq != null
+          ? { kind: kpis.qoq >= 0 ? "up" : "down", value: pct(kpis.qoq, 1) }
+          : undefined
+      }
+    />
+  </div>
+
+  {/* الصف الثاني: 2 كرت */}
+  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+    <KpiStat
+      title="القطاع الأسرع نموًا"
+      value={kpis?.fastestSector?.name ?? "—"}
+      subtitle={kpis?.fastestSector ? `+${kpis.fastestSector.yoy.toFixed(1)}% YoY` : "—"}
+      icon={<Trophy size={20} />}
+      tone="violet"
+      delta={
+        kpis?.fastestSector
+          ? { kind: "up", value: `+${kpis.fastestSector.yoy.toFixed(1)}%` }
+          : undefined
+      }
+    />
+
+    <KpiStat
+      title="المنطقة الأعلى تركّزًا"
+      value={kpis?.topRegion?.name ?? "—"}
+      subtitle={
+        kpis?.topRegion
+          ? `حصة ${kpis.topRegion.sharePct.toFixed(1)}% — ${new Intl.NumberFormat("en").format(
+              kpis.topRegion.count
+            )} منشأة`
+          : "—"
+      }
+      icon={<MapPin size={20} />}
+      tone="amber"
+      delta={kpis?.topRegion ? { kind: "flat", value: "Top region" } : undefined}
+    />
+  </div>
+</section>
+
+      {/* ===== مشاريع المستخدم (شبكة مرنة) ===== */}
+      <ProjectsList />
+
+      {/* ===== الرسومات ===== */}
+      <section className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+        <div className="card p-5">
+          <header className="mb-3 section-title">
+            توزيع المنشآت حسب الحجم (آخر فترة)
+          </header>
+          <div className="h-56">
+            {donut ? (
+              <SizeDonut labels={donut.labels} values={donut.values} />
+            ) : (
+              <Empty />
+            )}
           </div>
-          <span className="badge badge--up">YoY +4.2%</span>
         </div>
 
-        <div className="kpi">
-          <div>
-            <div className="kpi-title">معدل النمو السنوي (YoY)</div>
-            <div className="kpi-value mt-1">5.1%</div>
-            <div className="kpi-hint">مقارنة بـ 2024</div>
-          </div>
-          <span className="badge badge--up">+0.8 نقطة</span>
-        </div>
-
-        <div className="kpi">
-          <div>
-            <div className="kpi-title">التغير الفصلي (QoQ)</div>
-            <div className="kpi-value mt-1">+0.8%</div>
-            <div className="kpi-hint">مقارنة بالربع السابق</div>
-          </div>
-          <span className="badge">ربع سنوي</span>
-        </div>
-
-        <div className="kpi">
-          <div>
-            <div className="kpi-title">القطاع الأسرع نموًا</div>
-            <div className="kpi-value mt-1">التقنية</div>
-            <div className="kpi-hint">+12.3% YoY</div>
-          </div>
-          <span className="badge">Top</span>
-        </div>
-
-        <div className="kpi">
-          <div>
-            <div className="kpi-title">المنطقة الأعلى تركّزًا</div>
-            <div className="kpi-value mt-1">الرياض</div>
-            <div className="kpi-hint">حصة 24%</div>
-          </div>
-          <span className="badge">285K منشأة</span>
-        </div>
-      </div>
-
-      {/* رسومات — أماكن نظيفة جاهزة للتوصيل */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-        <section className="card p-5">
-          <header className="mb-3 section-title">توزيع المنشآت حسب الحجم</header>
-          <div className="h-56 rounded-lg bg-white/5 border border-[var(--color-border-soft)] grid place-items-center opacity-80 text-sm">
-            (Donut Placeholder)
-          </div>
-        </section>
-
-        <section className="card p-5">
-          <header className="mb-3 section-title">تطور المؤشرات المالية</header>
-          <div className="h-56 rounded-lg bg-white/5 border border-[var(--color-border-soft)] grid place-items-center opacity-80 text-sm">
-            (Line Placeholder: إيرادات/نفقات/فائض 2019–2025)
-          </div>
-        </section>
-
-        <section className="card p-5">
-          <header className="mb-3 section-title">جاهزية للنمو</header>
-          <div className="h-56 rounded-lg bg-white/5 border border-[var(--color-border-soft)] grid place-items-center opacity-80 text-sm">
-            (Gauge Placeholder + توصية قصيرة)
-          </div>
-        </section>
-      </div>
-
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-        <section className="card p-5 lg:col-span-2">
-          <header className="mb-3 section-title">تطور عدد المنشآت عبر السنوات</header>
-          <div className="h-64 rounded-lg bg-white/5 border border-[var(--color-border-soft)] grid place-items-center opacity-80 text-sm">
-            (Stacked Bar Placeholder حسب الحجم)
-          </div>
-        </section>
-
-        <section className="card p-5">
-          <header className="mb-3 section-title">أفضل المناطق / القطاعات</header>
-          <div className="space-y-3 text-sm">
-            <div className="flex items-center justify-between">
-              <span className="opacity-85">الرياض</span><span className="opacity-70">حصة 24%</span>
-            </div>
-            <div className="flex items-center justify-between">
-              <span className="opacity-85">جدة</span><span className="opacity-70">حصة 17%</span>
-            </div>
-            <div className="flex items-center justify-between">
-              <span className="opacity-85">الدمام</span><span className="opacity-70">حصة 11%</span>
-            </div>
-          </div>
-        </section>
-      </div>
-
-      <section className="card p-5">
-        <header className="mb-3 section-title">الخريطة التفاعلية (Choropleth)</header>
-        <div className="h-80 rounded-lg bg-white/5 border border-[var(--color-border-soft)] grid place-items-center opacity-80 text-sm">
-          (Mapbox Placeholder)
-        </div>
-      </section>
-
-      {/* مشاريعك (مصغّرة جداً) */}
-      <section className="card p-5">
-        <header className="mb-3 section-title">مشاريعك ونتائج التحليل</header>
-        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-          <div className="card p-4">
-            <div className="flex items-center gap-2">
-              <span className="badge badge--up">جاهزة للنمو</span>
-              <span className="font-semibold text-sm">منصة التجارة الإلكترونية</span>
-              <span className="text-xs opacity-70">· الرياض · التقنية</span>
-            </div>
-            <div className="mt-3 text-sm opacity-90">
-              منشأتك جاهزة للنمو بنسبة 78%… (ملخص قصير جدًا).
-            </div>
-            <div className="mt-3 h-2 bg-white/10 rounded-full overflow-hidden">
-              <div className="h-full bg-[var(--color-accent)]" style={{ width: "78%" }} />
-            </div>
-          </div>
-
-          <div className="card p-4">
-            <div className="flex items-center gap-2">
-              <span className="badge">محتملة للنمو</span>
-              <span className="font-semibold text-sm">مقهى القهوة العربية</span>
-              <span className="text-xs opacity-70">· جدة · الخدمات</span>
-            </div>
-            <div className="mt-3 text-sm opacity-90">
-              منشأتك محتملة للنمو بنسبة 63%… (ملخص قصير).
-            </div>
-            <div className="mt-3 h-2 bg-white/10 rounded-full overflow-hidden">
-              <div className="h-full bg-white/60" style={{ width: "63%" }} />
-            </div>
-          </div>
-
-          <div className="card p-4">
-            <div className="flex items-center gap-2">
-              <span className="badge">بحاجة لتحسين</span>
-              <span className="font-semibold text-sm">منتجات حرفية</span>
-              <span className="text-xs opacity-70">· الدمام · التصنيع</span>
-            </div>
-            <div className="mt-3 text-sm opacity-90">
-              الجاهزية 41%… (ملخص قصير).
-            </div>
-            <div className="mt-3 h-2 bg-white/10 rounded-full overflow-hidden">
-              <div className="h-full bg-white/40" style={{ width: "41%" }} />
-            </div>
+        <div className="card p-5 lg:col-span-2">
+          <header className="mb-3 section-title">
+            تطور المؤشرات المالية (2019–2025)
+          </header>
+          <div className="h-56">
+            {fin ? (
+              <FinanceLine
+                labels={fin.labels}
+                revenue={fin.revenue}
+                expenses={fin.expenses}
+                surplus={fin.surplus}
+              />
+            ) : (
+              <Empty />
+            )}
           </div>
         </div>
       </section>
+
+      <section className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <div className="card p-5">
+          <header className="mb-3 section-title">
+            تطور عدد المنشآت عبر السنوات (حسب الحجم)
+          </header>
+          <div className="h-64">
+            {sizes ? (
+              <SizesStackedBar
+                labels={sizes.labels}
+                micro={sizes.micro}
+                small={sizes.small}
+                medium={sizes.medium}
+              />
+            ) : (
+              <Empty />
+            )}
+          </div>
+        </div>
+
+        <div className="card p-5">
+          <header className="mb-3 section-title">
+            توزيع المنشآت جغرافيًا
+          </header>
+          {choroplethGeo ? (
+            <RegionChoropleth geojson={choroplethGeo} metricKey="count" />
+          ) : (
+            <div className="h-64 grid place-items-center opacity-80 text-sm">
+              (مطلوب sa_regions.geojson + NEXT_PUBLIC_MAPBOX_TOKEN)
+            </div>
+          )}
+        </div>
+      </section>
+    </div>
+  );
+}
+
+function Empty() {
+  return (
+    <div className="h-full w-full grid place-items-center opacity-70 text-sm">
+      جارٍ التحميل…
     </div>
   );
 }
